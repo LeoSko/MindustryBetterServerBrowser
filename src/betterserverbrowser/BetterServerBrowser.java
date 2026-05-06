@@ -91,6 +91,18 @@ public class BetterServerBrowser extends Mod {
     private static final float BTN_LABEL_PAD = 6f;
     private static final float BTN_BG_INSET  = 4f;
 
+    /** True when the current device should use the compact / touch-first
+     *  layout: bigger tap targets, fewer columns, no hover. Triggered by
+     *  Mindustry's mobile flag OR by a UI-coord width below 900. The
+     *  width clause catches resized desktop windows and tablets where the
+     *  mobile flag isn't set but the screen is narrow. */
+    private static boolean compactLayout() {
+        if (Vars.mobile) return true;
+        float uiScale = Scl.scl(1f);
+        float uiW = uiScale > 0f ? Core.graphics.getWidth() / uiScale : Core.graphics.getWidth();
+        return uiW < 900f;
+    }
+
     // ============================================================
     // Mod entry point
     // ============================================================
@@ -311,6 +323,15 @@ public class BetterServerBrowser extends Mod {
         serversDialog.cont.top();
         serversDialog.cont.defaults().growX();
 
+        // On compact (mobile / narrow) layouts toolbar height bumps and
+        // group/refresh/custom buttons land on their own row so each
+        // remains a clean touch target instead of crowding the search.
+        boolean compact = compactLayout();
+        float btnH = compact ? 44f : 28f;
+        float searchW = compact ? Math.min(420f, Core.graphics.getWidth() / Math.max(Scl.scl(1f), 1f) - 80f)
+                                : 260f;
+        float searchH = compact ? 44f : 32f;
+
         Table tb1 = new Table();
         tb1.defaults().padRight(8f);
         tb1.add("Search").padRight(4f);
@@ -321,9 +342,15 @@ public class BetterServerBrowser extends Mod {
             saveServersConfig();
             refreshBrowserRows();
         });
-        tb1.add(search).width(260f).height(32f);
+        tb1.add(search).width(searchW).height(searchH);
+        if (compact) {
+            // New row: group toggles + refresh + custom on their own.
+            serversDialog.cont.add(tb1).left().padBottom(6f).row();
+            tb1 = new Table();
+            tb1.defaults().padRight(8f);
+        }
 
-        tb1.add("Group:").padLeft(16f).padRight(4f);
+        tb1.add("Group:").padLeft(compact ? 0f : 16f).padRight(4f);
         String[] groupKeys = {"none", "mode", "group"};
         char[] groupGlyphs = {
             mindustry.gen.Iconc.cancel,
@@ -339,16 +366,17 @@ public class BetterServerBrowser extends Mod {
                 ? new Color(0.4f, 0.9f, 0.4f, 1f) : Color.white));
             chip.clicked(() -> { cfgServersGroupBy = key; saveServersConfig(); refreshBrowserRows(); });
             addTooltip(chip, "Group: " + key);
-            tb1.add(chip).width(measureButtonWidth(chip)).height(28f);
+            float w = Math.max(measureButtonWidth(chip), compact ? 44f : 0f);
+            tb1.add(chip).width(w).height(btnH);
         }
         TextButton refresh = new TextButton("↻ Refresh", Styles.defaultt);
         refresh.getLabelCell().pad(2f, BTN_LABEL_PAD, 2f, BTN_LABEL_PAD);
         refresh.clicked(this::collectAndPingServers);
-        tb1.add(refresh).padLeft(16f).width(measureButtonWidth(refresh)).height(28f);
+        tb1.add(refresh).padLeft(compact ? 8f : 16f).width(measureButtonWidth(refresh)).height(btnH);
         TextButton addBtn = new TextButton("+ Custom", Styles.defaultt);
         addBtn.getLabelCell().pad(2f, BTN_LABEL_PAD, 2f, BTN_LABEL_PAD);
         addBtn.clicked(this::showCustomConnectDialog);
-        tb1.add(addBtn).width(measureButtonWidth(addBtn)).height(28f);
+        tb1.add(addBtn).width(measureButtonWidth(addBtn)).height(btnH);
         serversDialog.cont.add(tb1).left().padBottom(6f).row();
 
         modeChipBar = new Table();
@@ -774,6 +802,7 @@ public class BetterServerBrowser extends Mod {
             Label favHdr = new Label("[gold]★ Favorites[]");
             enableMarkup(favHdr);
             browserList.add(favHdr).colspan(8).left().padTop(4f).padBottom(2f).row();
+            int favsRendered = 0;
             for (String key : cfgServersFavorites) {
                 BrowserEntry match = null;
                 for (int i = 0; i < filtered.size; i++) {
@@ -783,7 +812,20 @@ public class BetterServerBrowser extends Mod {
                 if (match != null) {
                     appendBrowserRowCells(browserList, match);
                     filtered.remove(match, true);
+                    favsRendered++;
                 }
+            }
+            // Visual separator + dim 'Other servers' header so favorites
+            // are clearly cut off from the rest of the list. Without this,
+            // a starred server and a community one bleed into each other
+            // when group=none.
+            if (favsRendered > 0 && !filtered.isEmpty()) {
+                Label sep = new Label("[#444]──────────────[]");
+                enableMarkup(sep);
+                browserList.add(sep).colspan(8).left().padTop(8f).padBottom(2f).row();
+                Label otherHdr = new Label("[#888]Other servers[]");
+                enableMarkup(otherHdr);
+                browserList.add(otherHdr).colspan(8).left().padBottom(4f).row();
             }
         }
 
@@ -808,6 +850,7 @@ public class BetterServerBrowser extends Mod {
     }
 
     private void appendBrowserRowCells(Table list, BrowserEntry e) {
+        boolean compact = compactLayout();
         Label name, players, mode, ping, map;
         if (e.host != null) {
             name    = new Label("[white]" + stripColors(e.host.name) + "[]");
@@ -825,7 +868,11 @@ public class BetterServerBrowser extends Mod {
             name    = new Label("[#888]" + e.ip + ":" + e.port + "[]");
             players = new Label("[#666]—[]");
             mode    = new Label("[#666]—[]");
-            ping    = new Label("[#666]" + (e.pinging ? "ping…" : "n/a") + "[]");
+            // Show "ping…" only until the first ping attempt completes
+            // (success or failure) — pingStep advances on each callback.
+            // Without this, the label flickered between "ping…" and
+            // "n/a" because e.pinging toggles every cycle.
+            ping    = new Label("[#666]" + (e.pingStep == 0 ? "ping…" : "n/a") + "[]");
             map     = new Label("[#666]—[]");
         }
         for (Label l : new Label[]{name, players, mode, ping, map}) {
@@ -839,9 +886,18 @@ public class BetterServerBrowser extends Mod {
         list.add(players).left().padRight(10f).padTop(2f).padBottom(2f);
         list.add(mode)   .left().padRight(10f).padTop(2f).padBottom(2f);
         list.add(ping)   .left().padRight(10f).padTop(2f).padBottom(2f);
-        list.add(map)    .left().padRight(10f).padTop(2f).padBottom(2f);
+        // Drop the Map column on compact layouts — narrow phone screens
+        // can't fit it next to ★/▲/▼; the map name is rarely the
+        // deciding factor for joining anyway.
+        if (compact) {
+            list.add().padRight(0f);   // spacer to keep column count stable with header
+        } else {
+            list.add(map).left().padRight(10f).padTop(2f).padBottom(2f);
+        }
 
-        float btnW = 28f, btnH = 24f;
+        // Touch-friendly button sizing on compact: 44×44 instead of 28×24.
+        float btnW = compact ? 44f : 28f;
+        float btnH = compact ? 44f : 24f;
         TextButton starBtn = new TextButton(e.favorite ? "★" : "☆", Styles.cleart);
         starBtn.getLabelCell().pad(0f, 0f, 0f, 0f);
         starBtn.setSize(btnW, btnH);
