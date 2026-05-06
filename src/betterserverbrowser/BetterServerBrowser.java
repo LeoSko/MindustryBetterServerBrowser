@@ -991,9 +991,57 @@ public class BetterServerBrowser extends Mod {
                 String text = buildReconnectLabel();
                 if (!text.equals(btn.getText().toString())) {
                     btn.setText(text);
+                    adjustReconnectButtonSize(btn, text);
                 }
             }
         });
+    }
+
+    /** Cached width/height applied to the reconnect cell so we don't
+     *  invalidate the menu hierarchy every frame. */
+    private float reconnectBtnAppliedW = 0f, reconnectBtnAppliedH = 0f;
+
+    /** Resize the menu cell hosting the reconnect button to fit its
+     *  current multi-line label. Vanilla MenuFragment hard-codes every
+     *  cell at 230×70 so a long server name + stats line wrapped onto
+     *  4 lines and overflowed visually. We measure the longest line via
+     *  the button's font, then mutate the parent Cell's width/height.
+     *  Capped at sane maxima so this can't blow the menu sidebar wider
+     *  than a couple of vanilla buttons. */
+    private void adjustReconnectButtonSize(arc.scene.ui.TextButton btn, String text) {
+        if (btn == null || btn.parent == null) return;
+        if (!(btn.parent instanceof Table)) return;
+        Table tbl = (Table) btn.parent;
+        Cell c = tbl.getCell(btn);
+        if (c == null) return;
+        arc.graphics.g2d.Font font = btn.getStyle() != null ? btn.getStyle().font : null;
+        if (font == null) return;
+        // Approximate icon + side-padding allowance: the button has a
+        // refresh icon on the left + its own internal margin. 70 = icon
+        // cell width + a small slack.
+        float iconAndPad = 70f;
+        // Pixel width of widest line.
+        float maxW = 0f;
+        String[] lines = text.split("\n");
+        for (String line : lines) {
+            MEASURE_LAYOUT.setText(font, line);
+            if (MEASURE_LAYOUT.width > maxW) maxW = MEASURE_LAYOUT.width;
+        }
+        float wantW = Math.max(230f, Math.min(420f, maxW + iconAndPad));
+        // Height grows with line count; vanilla single-line cells are 70.
+        float lineH = font.getLineHeight();
+        float wantH = Math.max(70f, lines.length * lineH + 16f);
+        // Skip relayout when nothing meaningful changed — invalidating
+        // the hierarchy every frame stutters the menu.
+        if (Math.abs(reconnectBtnAppliedW - wantW) < 0.5f
+            && Math.abs(reconnectBtnAppliedH - wantH) < 0.5f) {
+            return;
+        }
+        reconnectBtnAppliedW = wantW;
+        reconnectBtnAppliedH = wantH;
+        c.width(wantW).height(wantH);
+        btn.invalidate();
+        tbl.invalidateHierarchy();
     }
 
     private static arc.scene.ui.TextButton findReconnectMenuButton() {
