@@ -650,16 +650,17 @@ public class BetterServerBrowser extends Mod {
 
         filtersV3Panel = new Table();
         filtersV3Panel.defaults().growX().pad(0f);
+        filtersV3Panel.margin(0f);
         filtersV3Panel.left();
         // Compact filter content — group toggles fused into chip strip,
         // slider+show-empty share a row. Two rows total.
         modeChipBar = new Table();
         modeChipBar.defaults().padRight(6f);
-        arc.scene.ui.ScrollPane innerChipPane = new arc.scene.ui.ScrollPane(modeChipBar);
+        arc.scene.ui.ScrollPane innerChipPane = new arc.scene.ui.ScrollPane(modeChipBar, new arc.scene.ui.ScrollPane.ScrollPaneStyle());
         innerChipPane.setScrollingDisabled(false, true);
         innerChipPane.setOverscroll(false, false);
         innerChipPane.setFadeScrollBars(true);
-        filtersV3Panel.add(innerChipPane).left().growX().maxWidth(sceneWidth() - 12f).height(64f).pad(0f).row();
+        filtersV3Panel.add(innerChipPane).left().growX().maxWidth(sceneWidth() - 12f).height(56f).pad(0f).row();
         rebuildModeChipsV3();
 
         Table sliderRow = new Table();
@@ -685,8 +686,8 @@ public class BetterServerBrowser extends Mod {
         Runnable applyVisibility = () -> {
             filtersV3Panel.visible = filtersV3Expanded;
             if (filtersV3Expanded) {
-                float pref = filtersV3Panel.getPrefHeight();
-                cellRef.height(pref).pad(0f);
+                // Forced tight height: chip strip 56 + slider 56 + 4 slack.
+                cellRef.height(116f).pad(0f);
             } else {
                 cellRef.size(0f, 0f).pad(0f);
             }
