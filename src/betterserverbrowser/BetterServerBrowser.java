@@ -795,13 +795,49 @@ public class BetterServerBrowser extends Mod {
             if (c != 0) return c;
             return finalInner.compare(a, b);
         });
-        addSortHeader(browserList, "Server",                                       "name",    false);
-        addSortHeader(browserList, mindustry.gen.Iconc.players + " Players ",      "players", true);
-        addSortHeader(browserList, mindustry.gen.Iconc.modeAttack + " Mode",       "mode",    false);
-        addSortHeader(browserList, mindustry.gen.Iconc.chartBar + " Ping",         "ping",    false);
-        addSortHeader(browserList, mindustry.gen.Iconc.tree + " Map",              "map",     false);
-        browserList.add(); browserList.add(); browserList.add();
-        browserList.row();
+        boolean compactList = compactLayout();
+        if (!compactList) {
+            // Desktop column headers (clickable for sort). On compact /
+            // mobile we render rows as stacked cards instead, so column
+            // headers don't apply — sort options exposed via a small
+            // sort row right after the toolbar.
+            addSortHeader(browserList, "Server",                                       "name",    false);
+            addSortHeader(browserList, mindustry.gen.Iconc.players + " Players ",      "players", true);
+            addSortHeader(browserList, mindustry.gen.Iconc.modeAttack + " Mode",       "mode",    false);
+            addSortHeader(browserList, mindustry.gen.Iconc.chartBar + " Ping",         "ping",    false);
+            addSortHeader(browserList, mindustry.gen.Iconc.tree + " Map",              "map",     false);
+            browserList.add(); browserList.add(); browserList.add();
+            browserList.row();
+        } else {
+            // Compact: a single row of sort glyph-buttons. Tap one to
+            // re-sort the card list. Glyph-only keeps the row narrow.
+            Table sortBar = new Table();
+            sortBar.left();
+            String[] sortKeys = {"name","players","ping","mode","map"};
+            char[] sortGlyphs = {
+                mindustry.gen.Iconc.list,
+                mindustry.gen.Iconc.players,
+                mindustry.gen.Iconc.chartBar,
+                mindustry.gen.Iconc.modeAttack,
+                mindustry.gen.Iconc.tree
+            };
+            for (int i = 0; i < sortKeys.length; i++) {
+                String key = sortKeys[i];
+                char gl = sortGlyphs[i];
+                TextButton sb = new TextButton(String.valueOf(gl), Styles.defaultt);
+                sb.getLabelCell().pad(2f, BTN_LABEL_PAD, 2f, BTN_LABEL_PAD);
+                sb.update(() -> sb.setColor(cfgServersSort.equals(key)
+                    ? new Color(0.4f, 0.9f, 0.4f, 1f) : Color.white));
+                sb.clicked(() -> {
+                    if (cfgServersSort.equals(key)) cfgServersSortDesc = !cfgServersSortDesc;
+                    else { cfgServersSort = key; cfgServersSortDesc = "players".equals(key); }
+                    saveServersConfig();
+                    refreshBrowserRows();
+                });
+                sortBar.add(sb).width(48f).height(44f).padRight(4f);
+            }
+            browserList.add(sortBar).colspan(8).left().padBottom(6f).row();
+        }
 
         if (cfgServersFavorites.size > 0) {
             Label favHdr = new Label("[gold]★ Favorites[]");
@@ -856,6 +892,7 @@ public class BetterServerBrowser extends Mod {
 
     private void appendBrowserRowCells(Table list, BrowserEntry e) {
         boolean compact = compactLayout();
+        if (compact) { appendBrowserCardRow(list, e); return; }
         Label name, players, mode, ping, map;
         if (e.host != null) {
             name    = new Label("[white]" + stripColors(e.host.name) + "[]");
@@ -873,10 +910,6 @@ public class BetterServerBrowser extends Mod {
             name    = new Label("[#888]" + e.ip + ":" + e.port + "[]");
             players = new Label("[#666]—[]");
             mode    = new Label("[#666]—[]");
-            // Show "ping…" only until the first ping attempt completes
-            // (success or failure) — pingStep advances on each callback.
-            // Without this, the label flickered between "ping…" and
-            // "n/a" because e.pinging toggles every cycle.
             ping    = new Label("[#666]" + (e.pingStep == 0 ? "ping…" : "n/a") + "[]");
             map     = new Label("[#666]—[]");
         }
@@ -891,18 +924,10 @@ public class BetterServerBrowser extends Mod {
         list.add(players).left().padRight(10f).padTop(2f).padBottom(2f);
         list.add(mode)   .left().padRight(10f).padTop(2f).padBottom(2f);
         list.add(ping)   .left().padRight(10f).padTop(2f).padBottom(2f);
-        // Drop the Map column on compact layouts — narrow phone screens
-        // can't fit it next to ★/▲/▼; the map name is rarely the
-        // deciding factor for joining anyway.
-        if (compact) {
-            list.add().padRight(0f);   // spacer to keep column count stable with header
-        } else {
-            list.add(map).left().padRight(10f).padTop(2f).padBottom(2f);
-        }
+        list.add(map)    .left().padRight(10f).padTop(2f).padBottom(2f);
 
-        // Touch-friendly button sizing on compact: 44×44 instead of 28×24.
-        float btnW = compact ? 44f : 28f;
-        float btnH = compact ? 44f : 24f;
+        float btnW = 28f;
+        float btnH = 24f;
         TextButton starBtn = new TextButton(e.favorite ? "★" : "☆", Styles.cleart);
         starBtn.getLabelCell().pad(0f, 0f, 0f, 0f);
         starBtn.setSize(btnW, btnH);
@@ -937,6 +962,104 @@ public class BetterServerBrowser extends Mod {
             list.add().size(btnW, btnH).padLeft(2f);
         }
         list.row();
+    }
+
+    /** Compact / mobile row: a vertical card with two lines of content
+     *  spanning the full table width. Eliminates the 8-column desktop
+     *  layout that doesn't fit on phone screens.
+     *
+     *    line 1: [name (growX, ellipsises overflow)]   [★ fav button]
+     *    line 2: [players · mode · ping · map] (small, dim separators)
+     *
+     *  Tap anywhere on the card → connect. ★ has its own click. ▲/▼
+     *  re-order favorites only when this server is starred. */
+    private void appendBrowserCardRow(Table list, BrowserEntry e) {
+        Label name, players, mode, ping, map;
+        if (e.host != null) {
+            name    = new Label("[white]" + stripColors(e.host.name) + "[]");
+            String pcol = e.host.players == 0 ? "[#888]" : "[white]";
+            players = new Label(pcol + e.host.players + "[#666]/[white]"
+                             + e.host.playerLimit + "[]");
+            String mname = e.host.modeName != null ? e.host.modeName
+                          : (e.host.mode != null ? capitalize(e.host.mode.name()) : "?");
+            mode    = new Label("[#bbbbbb]" + mname + "[]");
+            int p90 = pingP90(e);
+            int shown = p90 >= 0 ? p90 : e.host.ping;
+            ping    = new Label(pingColor(shown) + shown + "ms[]");
+            map     = new Label("[#888]" + (e.host.mapname != null ? e.host.mapname : "?") + "[]");
+        } else {
+            name    = new Label("[#888]" + e.ip + ":" + e.port + "[]");
+            players = new Label("[#666]—[]");
+            mode    = new Label("[#666]—[]");
+            ping    = new Label("[#666]" + (e.pingStep == 0 ? "ping…" : "n/a") + "[]");
+            map     = new Label("[#666]—[]");
+        }
+        for (Label l : new Label[]{name, players, mode, ping, map}) {
+            enableMarkup(l);
+            l.setAlignment(arc.util.Align.left);
+        }
+        rowAnchorByEntry.put(e, name);
+
+        Table card = new Table();
+        card.left();
+        card.touchable = Touchable.enabled;
+        card.clicked(() -> {
+            recordRecentConnection(e.ip, e.port);
+            serversDialog.hide();
+            Vars.ui.join.connect(e.ip, e.port);
+        });
+
+        // Line 1: server name (growX) + favorite star (right).
+        Table line1 = new Table();
+        line1.add(name).left().growX();
+        TextButton starBtn = new TextButton(e.favorite ? "★" : "☆", Styles.cleart);
+        starBtn.getLabelCell().pad(0f, 0f, 0f, 0f);
+        starBtn.clicked(() -> toggleFavorite(e));
+        line1.add(starBtn).size(44f, 44f).right();
+        card.add(line1).growX().padBottom(2f).row();
+
+        // Line 2: dim metadata strip with bullet separators. Build a
+        // single Label so the line wraps cleanly when content overruns
+        // the card width on very narrow screens.
+        StringBuilder sb = new StringBuilder();
+        if (e.host != null) {
+            sb.append(((Label) players).getText()).append("  [#444]·[]  ");
+            sb.append(((Label) mode).getText()).append("  [#444]·[]  ");
+            sb.append(((Label) ping).getText());
+            if (e.host.mapname != null && !e.host.mapname.isEmpty()) {
+                sb.append("  [#444]·[]  ").append(((Label) map).getText());
+            }
+        } else {
+            sb.append(((Label) ping).getText());
+        }
+        Label meta = new Label(sb.toString());
+        enableMarkup(meta);
+        meta.setFontScale(0.85f);
+        card.add(meta).left().growX().row();
+
+        // Favorite reorder buttons under the card when applicable. Tiny
+        // row only renders for starred servers when ≥2 favorites exist.
+        if (e.favorite && cfgServersFavorites.size >= 2) {
+            String key = e.ip + ":" + e.port;
+            int idx = cfgServersFavorites.indexOf(key);
+            boolean canUp   = idx > 0;
+            boolean canDown = idx >= 0 && idx < cfgServersFavorites.size - 1;
+            Table favOps = new Table();
+            favOps.left();
+            if (canUp) {
+                TextButton up = new TextButton("▲ up", Styles.flatt);
+                up.clicked(() -> moveFavorite(key, -1));
+                favOps.add(up).height(36f).padRight(6f);
+            }
+            if (canDown) {
+                TextButton dn = new TextButton("▼ down", Styles.flatt);
+                dn.clicked(() -> moveFavorite(key, +1));
+                favOps.add(dn).height(36f);
+            }
+            card.add(favOps).left().padTop(4f);
+        }
+
+        list.add(card).colspan(8).left().growX().padTop(6f).padBottom(6f).row();
     }
 
     private void attachConnectClick(Label l, BrowserEntry e) {
