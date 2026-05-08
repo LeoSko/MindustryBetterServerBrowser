@@ -92,15 +92,23 @@ public class BetterServerBrowser extends Mod {
     private static final float BTN_BG_INSET  = 4f;
 
     /** True when the current device should use the compact / touch-first
-     *  layout: bigger tap targets, fewer columns, no hover. Triggered by
-     *  Mindustry's mobile flag OR by a UI-coord width below 900. The
-     *  width clause catches resized desktop windows and tablets where the
-     *  mobile flag isn't set but the screen is narrow. */
+     *  layout: bigger tap targets, single-column cards, no hover. Triggered
+     *  by Mindustry's mobile flag OR by a scene-coord width below 1100.
+     *  The threshold is intentionally loose so sub-tablet phones in
+     *  landscape and resized desktop windows both get the compact path. */
     private static boolean compactLayout() {
         if (Vars.mobile) return true;
+        float w = sceneWidth();
+        return w < 1100f;
+    }
+
+    /** Stage / scene width in UI coordinates. Falls back to a Scl-divided
+     *  pixel width when the scene isn't attached yet (early init paths). */
+    private static float sceneWidth() {
+        if (Core.scene != null && Core.scene.getWidth() > 1f) return Core.scene.getWidth();
         float uiScale = Scl.scl(1f);
-        float uiW = uiScale > 0f ? Core.graphics.getWidth() / uiScale : Core.graphics.getWidth();
-        return uiW < 900f;
+        float pxW = Core.graphics.getWidth();
+        return uiScale > 0f ? pxW / uiScale : pxW;
     }
 
     // ============================================================
@@ -325,18 +333,22 @@ public class BetterServerBrowser extends Mod {
         if (serversDialog != null && serversDialog.isShown()) return;
         loadServersConfig();
         serversDialog = new BaseDialog("Server browser");
+        // Fill the stage before any cell sizing runs so .growX() on inner
+        // cells gets a real width to grow into. Setting fillParent after
+        // show() left the dialog at a content-fit size on some Android
+        // devices, which is why the toolbar overflowed off-screen.
+        serversDialog.setFillParent(true);
         serversDialog.cont.top();
         serversDialog.cont.defaults().growX();
 
-        // On compact (mobile / narrow) layouts toolbar height bumps and
-        // group/refresh/custom buttons land on their own row so each
-        // remains a clean touch target instead of crowding the search.
         boolean compact = compactLayout();
         float btnH = compact ? 44f : 28f;
-        float searchW = compact ? Math.min(420f, Core.graphics.getWidth() / Math.max(Scl.scl(1f), 1f) - 80f)
-                                : 260f;
         float searchH = compact ? 44f : 32f;
+        float toolbarPad = compact ? 8f : 6f;
 
+        // Row 1: search field. On compact it gets the full row, with the
+        // text input growing to the available width so phones don't
+        // truncate it. On desktop it shares a row with the toolbar buttons.
         Table tb1 = new Table();
         tb1.defaults().padRight(8f);
         tb1.add("Search").padRight(4f);
@@ -347,15 +359,104 @@ public class BetterServerBrowser extends Mod {
             saveServersConfig();
             refreshBrowserRows();
         });
-        tb1.add(search).width(searchW).height(searchH);
         if (compact) {
-            // New row: group toggles + refresh + custom on their own.
-            serversDialog.cont.add(tb1).left().padBottom(6f).row();
-            tb1 = new Table();
-            tb1.defaults().padRight(8f);
+            tb1.add(search).growX().height(searchH);
+            serversDialog.cont.add(tb1).left().growX().padBottom(toolbarPad).row();
+        } else {
+            tb1.add(search).width(260f).height(searchH);
         }
 
-        tb1.add("Group:").padLeft(compact ? 0f : 16f).padRight(4f);
+        if (compact) {
+            // Row 2 (compact): group toggles only.
+            Table tb2 = new Table();
+            tb2.defaults().padRight(6f);
+            tb2.left();
+            tb2.add("Group:").padRight(6f);
+            addGroupChips(tb2, btnH, true);
+            serversDialog.cont.add(tb2).left().padBottom(toolbarPad).row();
+
+            // Row 3 (compact): refresh + custom — split so each is a fat
+            // touch target instead of cramming them onto row 2.
+            Table tb3 = new Table();
+            tb3.defaults().padRight(8f);
+            tb3.left();
+            TextButton refresh = new TextButton("↻ Refresh", Styles.defaultt);
+            refresh.getLabelCell().pad(2f, BTN_LABEL_PAD, 2f, BTN_LABEL_PAD);
+            refresh.clicked(this::collectAndPingServers);
+            tb3.add(refresh).height(btnH).growX();
+            TextButton addBtn = new TextButton("+ Custom", Styles.defaultt);
+            addBtn.getLabelCell().pad(2f, BTN_LABEL_PAD, 2f, BTN_LABEL_PAD);
+            addBtn.clicked(this::showCustomConnectDialog);
+            tb3.add(addBtn).height(btnH).growX();
+            serversDialog.cont.add(tb3).left().growX().padBottom(toolbarPad).row();
+        } else {
+            // Desktop: search + group chips + refresh + custom on one row.
+            tb1.add("Group:").padLeft(16f).padRight(4f);
+            addGroupChips(tb1, btnH, false);
+            TextButton refresh = new TextButton("↻ Refresh", Styles.defaultt);
+            refresh.getLabelCell().pad(2f, BTN_LABEL_PAD, 2f, BTN_LABEL_PAD);
+            refresh.clicked(this::collectAndPingServers);
+            tb1.add(refresh).padLeft(16f).width(measureButtonWidth(refresh)).height(btnH);
+            TextButton addBtn = new TextButton("+ Custom", Styles.defaultt);
+            addBtn.getLabelCell().pad(2f, BTN_LABEL_PAD, 2f, BTN_LABEL_PAD);
+            addBtn.clicked(this::showCustomConnectDialog);
+            tb1.add(addBtn).width(measureButtonWidth(addBtn)).height(btnH);
+            serversDialog.cont.add(tb1).left().padBottom(toolbarPad).row();
+        }
+
+        modeChipBar = new Table();
+        modeChipBar.defaults().padRight(6f);
+        serversDialog.cont.add(modeChipBar).left().padBottom(toolbarPad).row();
+        rebuildModeChips();
+
+        // Slider + show-empty. On compact the checkbox lives on its own row
+        // so the slider gets the full width to drag on a phone.
+        Table tb4 = new Table();
+        tb4.left();
+        tb4.add("Max ping").padRight(6f);
+        arc.scene.ui.Slider sl = new arc.scene.ui.Slider(50, 999, 10, false);
+        sl.setValue(cfgServersMaxPing);
+        Label v = new Label(cfgServersMaxPing + " ms");
+        sl.changed(() -> {
+            cfgServersMaxPing = (int) sl.getValue();
+            v.setText(cfgServersMaxPing + " ms");
+            saveServersConfig();
+            refreshBrowserRows();
+        });
+        if (compact) {
+            tb4.add(sl).growX().height(34f);
+            tb4.add(v).padLeft(8f).width(70f);
+            serversDialog.cont.add(tb4).left().growX().padBottom(toolbarPad).row();
+            CheckBox emptyCb = new CheckBox(" Show empty servers");
+            emptyCb.setChecked(cfgServersShowEmpty);
+            emptyCb.changed(() -> { cfgServersShowEmpty = emptyCb.isChecked(); saveServersConfig(); refreshBrowserRows(); });
+            serversDialog.cont.add(emptyCb).left().padBottom(toolbarPad).row();
+        } else {
+            tb4.add(sl).width(260f);
+            tb4.add(v).padLeft(6f).width(80f);
+            CheckBox emptyCb = new CheckBox(" Show empty servers");
+            emptyCb.setChecked(cfgServersShowEmpty);
+            emptyCb.changed(() -> { cfgServersShowEmpty = emptyCb.isChecked(); saveServersConfig(); refreshBrowserRows(); });
+            tb4.add(emptyCb).padLeft(20f);
+            serversDialog.cont.add(tb4).left().padBottom(toolbarPad).row();
+        }
+
+        Table list = new BrowserListTable(this);
+        list.top().left();
+        serversDialog.cont.pane(list).grow().row();
+        browserList = list;
+
+        serversDialog.addCloseButton();
+        serversDialog.show();
+        serversDialog.invalidateHierarchy();
+
+        collectAndPingServers();
+    }
+
+    /** Append the three group-toggle chips (none / mode / group) to a row.
+     *  Extracted so the compact and desktop toolbar layouts can build the
+     *  same chips into different parent tables. */
+    private void addGroupChips(Table row, float btnH, boolean compact) {
         String[] groupKeys = {"none", "mode", "group"};
         char[] groupGlyphs = {
             mindustry.gen.Iconc.cancel,
@@ -371,54 +472,9 @@ public class BetterServerBrowser extends Mod {
                 ? new Color(0.4f, 0.9f, 0.4f, 1f) : Color.white));
             chip.clicked(() -> { cfgServersGroupBy = key; saveServersConfig(); refreshBrowserRows(); });
             addTooltip(chip, "Group: " + key);
-            float w = Math.max(measureButtonWidth(chip), compact ? 44f : 0f);
-            tb1.add(chip).width(w).height(btnH);
+            float w = Math.max(measureButtonWidth(chip), compact ? 56f : 0f);
+            row.add(chip).width(w).height(btnH);
         }
-        TextButton refresh = new TextButton("↻ Refresh", Styles.defaultt);
-        refresh.getLabelCell().pad(2f, BTN_LABEL_PAD, 2f, BTN_LABEL_PAD);
-        refresh.clicked(this::collectAndPingServers);
-        tb1.add(refresh).padLeft(compact ? 8f : 16f).width(measureButtonWidth(refresh)).height(btnH);
-        TextButton addBtn = new TextButton("+ Custom", Styles.defaultt);
-        addBtn.getLabelCell().pad(2f, BTN_LABEL_PAD, 2f, BTN_LABEL_PAD);
-        addBtn.clicked(this::showCustomConnectDialog);
-        tb1.add(addBtn).width(measureButtonWidth(addBtn)).height(btnH);
-        serversDialog.cont.add(tb1).left().padBottom(6f).row();
-
-        modeChipBar = new Table();
-        modeChipBar.defaults().padRight(6f);
-        serversDialog.cont.add(modeChipBar).left().padBottom(6f).row();
-        rebuildModeChips();
-
-        Table tb3 = new Table();
-        tb3.add("Max ping").padRight(6f);
-        arc.scene.ui.Slider sl = new arc.scene.ui.Slider(50, 999, 10, false);
-        sl.setValue(cfgServersMaxPing);
-        Label v = new Label(cfgServersMaxPing + " ms");
-        sl.changed(() -> {
-            cfgServersMaxPing = (int) sl.getValue();
-            v.setText(cfgServersMaxPing + " ms");
-            saveServersConfig();
-            refreshBrowserRows();
-        });
-        tb3.add(sl).width(260f);
-        tb3.add(v).padLeft(6f).width(80f);
-        CheckBox emptyCb = new CheckBox(" Show empty servers");
-        emptyCb.setChecked(cfgServersShowEmpty);
-        emptyCb.changed(() -> { cfgServersShowEmpty = emptyCb.isChecked(); saveServersConfig(); refreshBrowserRows(); });
-        tb3.add(emptyCb).padLeft(20f);
-        serversDialog.cont.add(tb3).left().padBottom(6f).row();
-
-        Table list = new BrowserListTable(this);
-        list.top().left();
-        serversDialog.cont.pane(list).grow().row();
-        browserList = list;
-
-        serversDialog.addCloseButton();
-        serversDialog.show();
-        serversDialog.setFillParent(true);
-        serversDialog.invalidateHierarchy();
-
-        collectAndPingServers();
     }
 
     // ============================================================
@@ -453,13 +509,13 @@ public class BetterServerBrowser extends Mod {
         }
         custom.sort();
         ordered.addAll(custom);
-        float dialogW = serversDialog != null ? serversDialog.getWidth() : 0f;
-        if (dialogW <= 100f) {
-            float uiScale = Scl.scl(1f);
-            float pxW = Core.graphics.getWidth();
-            dialogW = (uiScale > 0f ? pxW / uiScale : pxW) - 60f;
-        }
-        float avail = Math.max(400f, Math.min(dialogW - 100f, 1200f));
+        // Use the stage width as the wrap budget. serversDialog.getWidth()
+        // returns 0 before layout settles, and clamping to a 400px floor on
+        // compact phones forced rows past the viewport edge. Scene width is
+        // always meaningful and matches what the dialog will actually fill.
+        float scene = sceneWidth();
+        float avail = Math.min(scene - 80f, 1200f);
+        if (avail < 200f) avail = 200f;
         float padRight = 4f;
         Table line = new Table();
         line.left();
