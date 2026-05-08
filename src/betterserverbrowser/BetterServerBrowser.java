@@ -646,10 +646,10 @@ public class BetterServerBrowser extends Mod {
         filtersToggle.getLabelCell().pad(2f, BTN_LABEL_PAD, 2f, BTN_LABEL_PAD);
         addTooltip(filtersToggle, "Filters");
         tb1.add(filtersToggle).size(searchH, searchH);
-        serversDialog.cont.add(tb1).left().growX().padBottom(toolbarPad).row();
+        serversDialog.cont.add(tb1).left().growX().pad(0f).row();
 
         filtersV3Panel = new Table();
-        filtersV3Panel.defaults().growX();
+        filtersV3Panel.defaults().growX().pad(0f);
         filtersV3Panel.left();
         // Compact filter content — group toggles fused into chip strip,
         // slider+show-empty share a row. Two rows total.
@@ -659,7 +659,7 @@ public class BetterServerBrowser extends Mod {
         innerChipPane.setScrollingDisabled(false, true);
         innerChipPane.setOverscroll(false, false);
         innerChipPane.setFadeScrollBars(true);
-        filtersV3Panel.add(innerChipPane).left().growX().maxWidth(sceneWidth() - 12f).height(80f).padBottom(2f).row();
+        filtersV3Panel.add(innerChipPane).left().growX().maxWidth(sceneWidth() - 12f).height(64f).pad(0f).row();
         rebuildModeChipsV3();
 
         Table sliderRow = new Table();
@@ -672,26 +672,21 @@ public class BetterServerBrowser extends Mod {
         sliderRow.add(sl).growX().height(34f);
         sliderRow.add(v).padLeft(6f).width(70f);
         sliderRow.add(makeShowEmptyCheckbox()).padLeft(12f);
-        filtersV3Panel.add(sliderRow).left().growX().padBottom(2f).row();
+        filtersV3Panel.add(sliderRow).left().growX().pad(0f).row();
 
-        // Wrap the panel in a vertical-scroll ScrollPane so its prefHeight
-        // can never push the toolbar above the dialog's title bar. Cell
-        // height is capped at ~40% of the stage when expanded; collapsed =
-        // 0×0 so the cell takes no space.
-        arc.scene.ui.ScrollPane filterScroll = new arc.scene.ui.ScrollPane(filtersV3Panel);
-        filterScroll.setScrollingDisabled(true, false);
-        filterScroll.setOverscroll(false, false);
-        filterScroll.setFadeScrollBars(false);
-
+        // Add panel directly to cont — no ScrollPane wrap. Content is
+        // short (2 rows ~150 px); scroll wasn't actually needed and the
+        // pane added invisible top/bottom decoration that produced the
+        // visible "gap" on phones.
         @SuppressWarnings("rawtypes")
         final arc.scene.ui.layout.Cell cellRef =
-            serversDialog.cont.add(filterScroll).left().growX().padBottom(toolbarPad);
+            serversDialog.cont.add(filtersV3Panel).left().growX().pad(0f);
         serversDialog.cont.row();
         Runnable applyVisibility = () -> {
-            filterScroll.visible = filtersV3Expanded;
+            filtersV3Panel.visible = filtersV3Expanded;
             if (filtersV3Expanded) {
                 float pref = filtersV3Panel.getPrefHeight();
-                cellRef.height(pref).pad(0f).padBottom(0f);
+                cellRef.height(pref).pad(0f);
             } else {
                 cellRef.size(0f, 0f).pad(0f);
             }
