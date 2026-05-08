@@ -435,7 +435,8 @@ public class BetterServerBrowser extends Mod {
     /** Read the desktop test variant from system property
      *  `bsb.testLayout` (1..5), or — on Android where -D properties don't
      *  reach dex'd code — from a marker file `.bsb-layout` under the
-     *  Mindustry data dir whose first byte is the digit 1..5. Default 1. */
+     *  Mindustry data dir whose first byte is the digit 1..5. Default 3
+     *  (collapsible Filters panel — gives the most server-list space). */
     private int getLayoutVariant() {
         try {
             String prop = System.getProperty("bsb.testLayout");
@@ -454,7 +455,7 @@ public class BetterServerBrowser extends Mod {
                 }
             }
         } catch (Throwable ignored) {}
-        return 1;
+        return 3;
     }
 
     /** Make the search field — shared by every layout variant. */
