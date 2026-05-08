@@ -145,29 +145,34 @@ public class BetterServerBrowser extends Mod {
     // ============================================================
     /** Custom Table for the server browser list. Paints a single row-
      *  spanning hover wash UNDER its cell children when a row's entry
-     *  matches {@code hoveredBrowserEntry}. */
-    private final class BrowserListTable extends Table {
+     *  matches {@code hoveredBrowserEntry}. Static inner — d8 (Android
+     *  dexer) chokes on the synthetic this$0 reference of non-static
+     *  inner classes that extend Mindustry framework types. */
+    private static final class BrowserListTable extends Table {
+        private final BetterServerBrowser owner;
+        BrowserListTable(BetterServerBrowser owner){ this.owner = owner; }
         @Override
         public void draw() {
             super.draw();
-            tickBrowserHover();
-            paintRowHover();
+            owner.tickBrowserHover();
+            owner.paintRowHover(this);
         }
-        private void paintRowHover() {
-            if (hoveredBrowserEntry == null) return;
-            Label anchor = rowAnchorByEntry.get(hoveredBrowserEntry);
-            if (anchor == null || anchor.getScene() == null) return;
-            arc.math.geom.Vec2 av = anchor.localToStageCoordinates(arc.util.Tmp.v1.set(0f, 0f));
-            arc.math.geom.Vec2 tv = localToStageCoordinates(arc.util.Tmp.v2.set(0f, 0f));
-            float rowY = av.y - 2f;
-            float rowH = anchor.getHeight() + 4f;
-            float rowX = tv.x;
-            float rowW = this.getWidth();
-            float parentA = arc.graphics.g2d.Draw.getColor().a;
-            arc.graphics.g2d.Draw.color(1f, 1f, 1f, 0.10f * parentA);
-            arc.graphics.g2d.Fill.crect(rowX, rowY, rowW, rowH);
-            arc.graphics.g2d.Draw.color();
-        }
+    }
+
+    private void paintRowHover(Table table) {
+        if (hoveredBrowserEntry == null) return;
+        Label anchor = rowAnchorByEntry.get(hoveredBrowserEntry);
+        if (anchor == null || anchor.getScene() == null) return;
+        arc.math.geom.Vec2 av = anchor.localToStageCoordinates(arc.util.Tmp.v1.set(0f, 0f));
+        arc.math.geom.Vec2 tv = table.localToStageCoordinates(arc.util.Tmp.v2.set(0f, 0f));
+        float rowY = av.y - 2f;
+        float rowH = anchor.getHeight() + 4f;
+        float rowX = tv.x;
+        float rowW = table.getWidth();
+        float parentA = arc.graphics.g2d.Draw.getColor().a;
+        arc.graphics.g2d.Draw.color(1f, 1f, 1f, 0.10f * parentA);
+        arc.graphics.g2d.Fill.crect(rowX, rowY, rowW, rowH);
+        arc.graphics.g2d.Draw.color();
     }
 
     // ============================================================
@@ -403,7 +408,7 @@ public class BetterServerBrowser extends Mod {
         tb3.add(emptyCb).padLeft(20f);
         serversDialog.cont.add(tb3).left().padBottom(6f).row();
 
-        Table list = new BrowserListTable();
+        Table list = new BrowserListTable(this);
         list.top().left();
         serversDialog.cont.pane(list).grow().row();
         browserList = list;
