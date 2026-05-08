@@ -97,14 +97,21 @@ public class BetterServerBrowser extends Mod {
      *  The threshold is intentionally loose so sub-tablet phones in
      *  landscape and resized desktop windows both get the compact path. */
     private static boolean compactLayout() {
+        if (Boolean.getBoolean("bsb.testForceCompact")) return true;
         if (Vars.mobile) return true;
         float w = sceneWidth();
         return w < 1100f;
     }
 
     /** Stage / scene width in UI coordinates. Falls back to a Scl-divided
-     *  pixel width when the scene isn't attached yet (early init paths). */
+     *  pixel width when the scene isn't attached yet (early init paths).
+     *  Honors `-Dbsb.testWidth=...` so desktop screenshot tests can pretend
+     *  the stage is phone-sized. */
     private static float sceneWidth() {
+        String forced = System.getProperty("bsb.testWidth");
+        if (forced != null && !forced.isEmpty()) {
+            try { return Float.parseFloat(forced); } catch (Exception ignored) {}
+        }
         if (Core.scene != null && Core.scene.getWidth() > 1f) return Core.scene.getWidth();
         float uiScale = Scl.scl(1f);
         float pxW = Core.graphics.getWidth();
@@ -117,8 +124,25 @@ public class BetterServerBrowser extends Mod {
     @Override
     public void init() {
         Events.on(mindustry.game.EventType.ClientLoadEvent.class, e -> {
+            // Test hook: shrink the window to phone-ish dimensions before
+            // the browser opens so the screenshot loop sees the real
+            // compact layout. Gated; ignored without -Dbsb.testWidth.
+            String tw = System.getProperty("bsb.testWidth");
+            String th = System.getProperty("bsb.testHeight");
+            if (tw != null && th != null) {
+                try { Core.graphics.setWindowSize(Integer.parseInt(tw), Integer.parseInt(th)); }
+                catch (Throwable ignored) {}
+            }
             try { addReconnectMenuCard(); } catch (Throwable t) { arc.util.Log.err("[bsb] addReconnectMenuCard failed", t); }
             try { installServerBrowserMenu(); } catch (Throwable t) { arc.util.Log.err("[bsb] installServerBrowserMenu failed", t); }
+            // Test hook: open the browser dialog immediately on game load so
+            // screenshot loops don't have to drive the main menu. Gated by
+            // a system property so this never fires for real users.
+            if (Boolean.getBoolean("bsb.testAutoOpen")) {
+                arc.Core.app.post(() -> {
+                    try { showServerBrowser(); } catch (Throwable t) { arc.util.Log.err("[bsb] auto-open failed", t); }
+                });
+            }
         });
         // Persist last successful connection so the menu Reconnect tile
         // works across game restarts.
