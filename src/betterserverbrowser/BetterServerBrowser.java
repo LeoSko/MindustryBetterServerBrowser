@@ -137,8 +137,23 @@ public class BetterServerBrowser extends Mod {
             try { installServerBrowserMenu(); } catch (Throwable t) { arc.util.Log.err("[bsb] installServerBrowserMenu failed", t); }
             // Test hook: open the browser dialog immediately on game load so
             // screenshot loops don't have to drive the main menu. Gated by
-            // a system property so this never fires for real users.
-            if (Boolean.getBoolean("bsb.testAutoOpen")) {
+            // a system property OR a marker file (Boolean.getBoolean is
+            // unreachable on Android, so the marker file lets adb trigger
+            // it from a desktop test rig).
+            boolean autoOpen = Boolean.getBoolean("bsb.testAutoOpen");
+            if (!autoOpen) {
+                try {
+                    arc.files.Fi data = arc.Core.settings.getDataDirectory();
+                    if (data != null && data.child(".bsb-test").exists()) autoOpen = true;
+                } catch (Throwable ignored) {}
+            }
+            if (autoOpen) {
+                // Ensure vanilla join's "pick a name first" gate doesn't block
+                // dialog mounts during automated tests.
+                try {
+                    String n = Core.settings.getString("name", "");
+                    if (n == null || n.isEmpty()) Core.settings.put("name", "BSBTest");
+                } catch (Throwable ignored) {}
                 arc.Core.app.post(() -> {
                     try { showServerBrowser(); } catch (Throwable t) { arc.util.Log.err("[bsb] auto-open failed", t); }
                 });
@@ -430,7 +445,15 @@ public class BetterServerBrowser extends Mod {
 
         modeChipBar = new Table();
         modeChipBar.defaults().padRight(6f);
-        serversDialog.cont.add(modeChipBar).left().padBottom(toolbarPad).row();
+        // Embed in a horizontally-scrollable pane so a long mode list can't
+        // drag cont past the dialog viewport — Table-based wrap math kept
+        // computing prefWidths wider than the actual visible area on
+        // Android (font scaling vs Scl mismatch in Cell sizing).
+        arc.scene.ui.ScrollPane chipPane = new arc.scene.ui.ScrollPane(modeChipBar);
+        chipPane.setScrollingDisabled(false, true);
+        chipPane.setOverscroll(false, false);
+        chipPane.setFadeScrollBars(true);
+        serversDialog.cont.add(chipPane).left().growX().maxWidth(sceneWidth() - 12f).height(120f).padBottom(toolbarPad).row();
         rebuildModeChips();
 
         // Slider + show-empty. On compact the checkbox lives on its own row
@@ -467,11 +490,24 @@ public class BetterServerBrowser extends Mod {
 
         Table list = new BrowserListTable(this);
         list.top().left();
-        serversDialog.cont.pane(list).grow().row();
+        // Pane must not scroll horizontally — content extending past the
+        // viewport (long server names, accidental wide cells) would
+        // otherwise drag cont's prefWidth out and leave the right side of
+        // the dialog showing the menu underneath.
+        arc.scene.ui.ScrollPane spane = serversDialog.cont.pane(list).grow().maxWidth(sceneWidth()).get();
+        spane.setScrollingDisabled(true, false);
+        spane.setForceScroll(false, true);
+        serversDialog.cont.row();
         browserList = list;
 
         serversDialog.addCloseButton();
         serversDialog.show();
+        if (Core.scene != null) {
+            float sw = Core.scene.getWidth();
+            float sh = Core.scene.getHeight();
+            serversDialog.setSize(sw, sh);
+            serversDialog.setPosition(0f, 0f);
+        }
         serversDialog.invalidateHierarchy();
 
         collectAndPingServers();
@@ -508,7 +544,7 @@ public class BetterServerBrowser extends Mod {
         if (modeChipBar == null) return;
         modeChipBar.clear();
         modeChipBar.left();
-        modeChipBar.add("Modes:").padRight(6f);
+        modeChipBar.add("Modes:").padRight(6f).padLeft(6f);
         ObjectMap<String, String> keyToDisplay = new ObjectMap<>();
         for (mindustry.game.Gamemode g : mindustry.game.Gamemode.values()) {
             keyToDisplay.put(g.name().toLowerCase(), capitalize(g.name()));
@@ -533,18 +569,10 @@ public class BetterServerBrowser extends Mod {
         }
         custom.sort();
         ordered.addAll(custom);
-        // Use the stage width as the wrap budget. serversDialog.getWidth()
-        // returns 0 before layout settles, and clamping to a 400px floor on
-        // compact phones forced rows past the viewport edge. Scene width is
-        // always meaningful and matches what the dialog will actually fill.
-        float scene = sceneWidth();
-        float avail = Math.min(scene - 80f, 1200f);
-        if (avail < 200f) avail = 200f;
+        // Single horizontal row — the parent ScrollPane handles overflow by
+        // letting the user swipe through chips. Avoids Table wrap math
+        // having to predict the exact runtime chip widths under Scl scale.
         float padRight = 4f;
-        Table line = new Table();
-        line.left();
-        modeChipBar.add(line).left();
-        float lineW = 0f;
         for (String key : ordered) {
             String display = keyToDisplay.get(key);
             TextButton chip = new TextButton(display, Styles.flatTogglet);
@@ -558,16 +586,7 @@ public class BetterServerBrowser extends Mod {
             chip.getLabelCell().pad(2f, BTN_LABEL_PAD, 2f, BTN_LABEL_PAD);
             chip.pack();
             float chipW = Math.max(measureButtonWidth(chip), chip.getPrefWidth());
-            if (lineW > 0f && lineW + chipW + padRight > avail) {
-                modeChipBar.row();
-                modeChipBar.add().padRight(6f);
-                line = new Table();
-                line.left();
-                modeChipBar.add(line).left();
-                lineW = 0f;
-            }
-            line.add(chip).width(chipW).height(28f).padRight(padRight).padBottom(4f);
-            lineW += chipW + padRight;
+            modeChipBar.add(chip).width(chipW).height(64f).padRight(padRight);
         }
     }
 
@@ -1089,9 +1108,13 @@ public class BetterServerBrowser extends Mod {
             Vars.ui.join.connect(e.ip, e.port);
         });
 
+        // Long server names blow out the card width and drag the whole
+        // dialog past the viewport. Force ellipsis on the name + cap the
+        // card width to the scene so cells inside have a bounded growX.
+        try { name.setEllipsis(true); } catch (Throwable ignored) {}
         // Line 1: server name (growX) + favorite star (right).
         Table line1 = new Table();
-        line1.add(name).left().growX();
+        line1.add(name).left().growX().minWidth(0f);
         TextButton starBtn = new TextButton(e.favorite ? "★" : "☆", Styles.cleart);
         starBtn.getLabelCell().pad(0f, 0f, 0f, 0f);
         starBtn.clicked(() -> toggleFavorite(e));
@@ -1139,7 +1162,10 @@ public class BetterServerBrowser extends Mod {
             card.add(favOps).left().padTop(4f);
         }
 
-        list.add(card).colspan(8).left().growX().padTop(6f).padBottom(6f).row();
+        // Fixed maxWidth so a single long server name can't blow the card
+        // (and therefore the whole dialog content table) past the viewport.
+        float cardMaxW = sceneWidth() - 24f;
+        list.add(card).colspan(8).left().growX().maxWidth(cardMaxW).padTop(6f).padBottom(6f).row();
     }
 
     private void attachConnectClick(Label l, BrowserEntry e) {
