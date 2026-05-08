@@ -2,7 +2,7 @@ name: better-server-browser
 displayName: Better Server Browser
 author: SeaPy
 description: Replaces vanilla Join Game dialog with a sortable / filterable / groupable server browser. Continuous p90 ping, favorites synced with vanilla, search, mode chips, custom connect dialog, recent-connection reconnect.
-version: 1.0
+version: 1.1
 minGameVersion: 154
 main: betterserverbrowser.BetterServerBrowser
 java: true

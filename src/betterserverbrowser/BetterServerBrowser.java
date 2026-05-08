@@ -378,114 +378,30 @@ public class BetterServerBrowser extends Mod {
         // devices, which is why the toolbar overflowed off-screen.
         serversDialog.setFillParent(true);
         serversDialog.cont.top();
-        serversDialog.cont.defaults().growX();
+        // BaseDialog's outer table wraps cont in a cell with non-zero pad
+        // (default ~6) which produces the visible "gap" below the title
+        // and around our content. Zero the cell + cont's defaults so rows
+        // sit flush.
+        try {
+            @SuppressWarnings("rawtypes")
+            arc.scene.ui.layout.Cell contCell = serversDialog.getCell(serversDialog.cont);
+            if (contCell != null) contCell.pad(0f);
+        } catch (Throwable ignored) {}
+        serversDialog.cont.defaults().growX().pad(0f);
 
         boolean compact = compactLayout();
         float btnH = compact ? 44f : 28f;
         float searchH = compact ? 44f : 32f;
         float toolbarPad = compact ? 8f : 6f;
 
-        // Row 1: search field. On compact it gets the full row, with the
-        // text input growing to the available width so phones don't
-        // truncate it. On desktop it shares a row with the toolbar buttons.
-        Table tb1 = new Table();
-        tb1.defaults().padRight(8f);
-        tb1.add("Search").padRight(4f);
-        arc.scene.ui.TextField search = new arc.scene.ui.TextField(cfgServersSearch);
-        search.setMessageText("server name…");
-        search.changed(() -> {
-            cfgServersSearch = search.getText();
-            saveServersConfig();
-            refreshBrowserRows();
-        });
-        if (compact) {
-            tb1.add(search).growX().height(searchH);
-            serversDialog.cont.add(tb1).left().growX().padBottom(toolbarPad).row();
-        } else {
-            tb1.add(search).width(260f).height(searchH);
-        }
-
-        if (compact) {
-            // Row 2 (compact): group toggles only.
-            Table tb2 = new Table();
-            tb2.defaults().padRight(6f);
-            tb2.left();
-            tb2.add("Group:").padRight(6f);
-            addGroupChips(tb2, btnH, true);
-            serversDialog.cont.add(tb2).left().padBottom(toolbarPad).row();
-
-            // Row 3 (compact): refresh + custom — split so each is a fat
-            // touch target instead of cramming them onto row 2.
-            Table tb3 = new Table();
-            tb3.defaults().padRight(8f);
-            tb3.left();
-            TextButton refresh = new TextButton("↻ Refresh", Styles.defaultt);
-            refresh.getLabelCell().pad(2f, BTN_LABEL_PAD, 2f, BTN_LABEL_PAD);
-            refresh.clicked(this::collectAndPingServers);
-            tb3.add(refresh).height(btnH).growX();
-            TextButton addBtn = new TextButton("+ Custom", Styles.defaultt);
-            addBtn.getLabelCell().pad(2f, BTN_LABEL_PAD, 2f, BTN_LABEL_PAD);
-            addBtn.clicked(this::showCustomConnectDialog);
-            tb3.add(addBtn).height(btnH).growX();
-            serversDialog.cont.add(tb3).left().growX().padBottom(toolbarPad).row();
-        } else {
-            // Desktop: search + group chips + refresh + custom on one row.
-            tb1.add("Group:").padLeft(16f).padRight(4f);
-            addGroupChips(tb1, btnH, false);
-            TextButton refresh = new TextButton("↻ Refresh", Styles.defaultt);
-            refresh.getLabelCell().pad(2f, BTN_LABEL_PAD, 2f, BTN_LABEL_PAD);
-            refresh.clicked(this::collectAndPingServers);
-            tb1.add(refresh).padLeft(16f).width(measureButtonWidth(refresh)).height(btnH);
-            TextButton addBtn = new TextButton("+ Custom", Styles.defaultt);
-            addBtn.getLabelCell().pad(2f, BTN_LABEL_PAD, 2f, BTN_LABEL_PAD);
-            addBtn.clicked(this::showCustomConnectDialog);
-            tb1.add(addBtn).width(measureButtonWidth(addBtn)).height(btnH);
-            serversDialog.cont.add(tb1).left().padBottom(toolbarPad).row();
-        }
-
-        modeChipBar = new Table();
-        modeChipBar.defaults().padRight(6f);
-        // Embed in a horizontally-scrollable pane so a long mode list can't
-        // drag cont past the dialog viewport — Table-based wrap math kept
-        // computing prefWidths wider than the actual visible area on
-        // Android (font scaling vs Scl mismatch in Cell sizing).
-        arc.scene.ui.ScrollPane chipPane = new arc.scene.ui.ScrollPane(modeChipBar);
-        chipPane.setScrollingDisabled(false, true);
-        chipPane.setOverscroll(false, false);
-        chipPane.setFadeScrollBars(true);
-        serversDialog.cont.add(chipPane).left().growX().maxWidth(sceneWidth() - 12f).height(120f).padBottom(toolbarPad).row();
-        rebuildModeChips();
-
-        // Slider + show-empty. On compact the checkbox lives on its own row
-        // so the slider gets the full width to drag on a phone.
-        Table tb4 = new Table();
-        tb4.left();
-        tb4.add("Max ping").padRight(6f);
-        arc.scene.ui.Slider sl = new arc.scene.ui.Slider(50, 999, 10, false);
-        sl.setValue(cfgServersMaxPing);
-        Label v = new Label(cfgServersMaxPing + " ms");
-        sl.changed(() -> {
-            cfgServersMaxPing = (int) sl.getValue();
-            v.setText(cfgServersMaxPing + " ms");
-            saveServersConfig();
-            refreshBrowserRows();
-        });
-        if (compact) {
-            tb4.add(sl).growX().height(34f);
-            tb4.add(v).padLeft(8f).width(70f);
-            serversDialog.cont.add(tb4).left().growX().padBottom(toolbarPad).row();
-            CheckBox emptyCb = new CheckBox(" Show empty servers");
-            emptyCb.setChecked(cfgServersShowEmpty);
-            emptyCb.changed(() -> { cfgServersShowEmpty = emptyCb.isChecked(); saveServersConfig(); refreshBrowserRows(); });
-            serversDialog.cont.add(emptyCb).left().padBottom(toolbarPad).row();
-        } else {
-            tb4.add(sl).width(260f);
-            tb4.add(v).padLeft(6f).width(80f);
-            CheckBox emptyCb = new CheckBox(" Show empty servers");
-            emptyCb.setChecked(cfgServersShowEmpty);
-            emptyCb.changed(() -> { cfgServersShowEmpty = emptyCb.isChecked(); saveServersConfig(); refreshBrowserRows(); });
-            tb4.add(emptyCb).padLeft(20f);
-            serversDialog.cont.add(tb4).left().padBottom(toolbarPad).row();
+        int variant = getLayoutVariant();
+        if (!compact) variant = 1;
+        switch (variant) {
+            case 2: buildToolbarV2(btnH, searchH, toolbarPad); break;
+            case 3: buildToolbarV3(btnH, searchH, toolbarPad); break;
+            case 4: buildToolbarV4(btnH, searchH, toolbarPad); break;
+            case 5: buildToolbarV5(btnH, searchH, toolbarPad); break;
+            default: buildToolbarV1(compact, btnH, searchH, toolbarPad); break;
         }
 
         Table list = new BrowserListTable(this);
@@ -494,7 +410,10 @@ public class BetterServerBrowser extends Mod {
         // viewport (long server names, accidental wide cells) would
         // otherwise drag cont's prefWidth out and leave the right side of
         // the dialog showing the menu underneath.
-        arc.scene.ui.ScrollPane spane = serversDialog.cont.pane(list).grow().maxWidth(sceneWidth()).get();
+        @SuppressWarnings("rawtypes")
+        arc.scene.ui.layout.Cell paneCell = serversDialog.cont.pane(list).grow().maxWidth(sceneWidth());
+        paneCell.pad(0f);
+        arc.scene.ui.ScrollPane spane = (arc.scene.ui.ScrollPane) paneCell.get();
         spane.setScrollingDisabled(true, false);
         spane.setForceScroll(false, true);
         serversDialog.cont.row();
@@ -511,6 +430,356 @@ public class BetterServerBrowser extends Mod {
         serversDialog.invalidateHierarchy();
 
         collectAndPingServers();
+    }
+
+    /** Read the desktop test variant from system property
+     *  `bsb.testLayout` (1..5), or — on Android where -D properties don't
+     *  reach dex'd code — from a marker file `.bsb-layout` under the
+     *  Mindustry data dir whose first byte is the digit 1..5. Default 1. */
+    private int getLayoutVariant() {
+        try {
+            String prop = System.getProperty("bsb.testLayout");
+            if (prop != null && !prop.isEmpty()) {
+                int v = Integer.parseInt(prop.trim());
+                if (v >= 1 && v <= 5) return v;
+            }
+        } catch (Exception ignored) {}
+        try {
+            arc.files.Fi data = arc.Core.settings.getDataDirectory().child(".bsb-layout");
+            if (data.exists()) {
+                String s = data.readString().trim();
+                if (!s.isEmpty()) {
+                    int v = Integer.parseInt(s.substring(0, 1));
+                    if (v >= 1 && v <= 5) return v;
+                }
+            }
+        } catch (Throwable ignored) {}
+        return 1;
+    }
+
+    /** Make the search field — shared by every layout variant. */
+    private arc.scene.ui.TextField makeSearchField() {
+        arc.scene.ui.TextField search = new arc.scene.ui.TextField(cfgServersSearch);
+        search.setMessageText("server name…");
+        search.changed(() -> {
+            cfgServersSearch = search.getText();
+            saveServersConfig();
+            refreshBrowserRows();
+        });
+        return search;
+    }
+
+    /** Refresh + Custom buttons. Caller owns layout. Returns the buttons so
+     *  layouts can stick them in different parents. */
+    private TextButton makeRefreshBtn() {
+        TextButton b = new TextButton("↻ Refresh", Styles.defaultt);
+        b.getLabelCell().pad(2f, BTN_LABEL_PAD, 2f, BTN_LABEL_PAD);
+        b.clicked(this::collectAndPingServers);
+        return b;
+    }
+
+    private TextButton makeCustomBtn() {
+        TextButton b = new TextButton("+ Custom", Styles.defaultt);
+        b.getLabelCell().pad(2f, BTN_LABEL_PAD, 2f, BTN_LABEL_PAD);
+        b.clicked(this::showCustomConnectDialog);
+        return b;
+    }
+
+    /** Single-glyph icon button for tight toolbars. */
+    private TextButton makeIconBtn(char glyph, String tooltip, Runnable onClick) {
+        TextButton b = new TextButton(String.valueOf(glyph), Styles.defaultt);
+        b.getLabelCell().pad(2f, BTN_LABEL_PAD, 2f, BTN_LABEL_PAD);
+        b.clicked(() -> onClick.run());
+        if (tooltip != null && !tooltip.isEmpty()) addTooltip(b, tooltip);
+        return b;
+    }
+
+    /** Builds the chip pane (mode chips, h-scrollable). */
+    private void addModeChipPane(Table parent, float toolbarPad, float height) {
+        modeChipBar = new Table();
+        modeChipBar.defaults().padRight(6f);
+        arc.scene.ui.ScrollPane chipPane = new arc.scene.ui.ScrollPane(modeChipBar);
+        chipPane.setScrollingDisabled(false, true);
+        chipPane.setOverscroll(false, false);
+        chipPane.setFadeScrollBars(true);
+        parent.add(chipPane).left().growX().maxWidth(sceneWidth() - 12f).height(height).padBottom(toolbarPad).row();
+        rebuildModeChips();
+    }
+
+    /** Slider + value label, full-width row. */
+    private void addSliderRow(Table parent, float toolbarPad, boolean compact) {
+        Table tb = new Table();
+        tb.left();
+        tb.add("Max ping").padRight(6f);
+        arc.scene.ui.Slider sl = new arc.scene.ui.Slider(50, 999, 10, false);
+        sl.setValue(cfgServersMaxPing);
+        Label v = new Label(cfgServersMaxPing + " ms");
+        sl.changed(() -> {
+            cfgServersMaxPing = (int) sl.getValue();
+            v.setText(cfgServersMaxPing + " ms");
+            saveServersConfig();
+            refreshBrowserRows();
+        });
+        if (compact) {
+            tb.add(sl).growX().height(34f);
+            tb.add(v).padLeft(8f).width(70f);
+        } else {
+            tb.add(sl).width(260f);
+            tb.add(v).padLeft(6f).width(80f);
+        }
+        parent.add(tb).left().growX().padBottom(toolbarPad).row();
+    }
+
+    private CheckBox makeShowEmptyCheckbox() {
+        CheckBox cb = new CheckBox(" Show empty servers");
+        cb.setChecked(cfgServersShowEmpty);
+        cb.changed(() -> { cfgServersShowEmpty = cb.isChecked(); saveServersConfig(); refreshBrowserRows(); });
+        return cb;
+    }
+
+    // ============================================================
+    // Layout V1 — current baseline (search / group / refresh+custom /
+    // mode-chips / slider / show-empty separate rows). Stable, well-known.
+    // ============================================================
+    private void buildToolbarV1(boolean compact, float btnH, float searchH, float toolbarPad) {
+        Table tb1 = new Table();
+        tb1.defaults().padRight(8f);
+        tb1.add("Search").padRight(4f);
+        arc.scene.ui.TextField search = makeSearchField();
+        if (compact) {
+            tb1.add(search).growX().height(searchH);
+            serversDialog.cont.add(tb1).left().growX().padBottom(toolbarPad).row();
+            Table tb2 = new Table();
+            tb2.defaults().padRight(6f);
+            tb2.left();
+            tb2.add("Group:").padRight(6f);
+            addGroupChips(tb2, btnH, true);
+            serversDialog.cont.add(tb2).left().padBottom(toolbarPad).row();
+            Table tb3 = new Table();
+            tb3.defaults().padRight(8f);
+            tb3.left();
+            tb3.add(makeRefreshBtn()).height(btnH).growX();
+            tb3.add(makeCustomBtn()).height(btnH).growX();
+            serversDialog.cont.add(tb3).left().growX().padBottom(toolbarPad).row();
+        } else {
+            tb1.add(search).width(260f).height(searchH);
+            tb1.add("Group:").padLeft(16f).padRight(4f);
+            addGroupChips(tb1, btnH, false);
+            tb1.add(makeRefreshBtn()).padLeft(16f).width(measureButtonWidth(makeRefreshBtn())).height(btnH);
+            tb1.add(makeCustomBtn()).width(measureButtonWidth(makeCustomBtn())).height(btnH);
+            serversDialog.cont.add(tb1).left().padBottom(toolbarPad).row();
+        }
+        addModeChipPane(serversDialog.cont, toolbarPad, 120f);
+        addSliderRow(serversDialog.cont, toolbarPad, compact);
+        serversDialog.cont.add(makeShowEmptyCheckbox()).left().padBottom(toolbarPad).row();
+    }
+
+    // ============================================================
+    // Layout V2 — Two-row tight: search + icon refresh + icon custom on
+    // row 1; group chips + mode chips fused into one h-scroll strip on
+    // row 2. Slider + show-empty share row 3 (slider growX, empty inline).
+    // ============================================================
+    private void buildToolbarV2(float btnH, float searchH, float toolbarPad) {
+        Table tb1 = new Table();
+        tb1.defaults().padRight(6f);
+        tb1.add(makeSearchField()).growX().height(searchH);
+        tb1.add(makeIconBtn(mindustry.gen.Iconc.refresh, "Refresh", this::collectAndPingServers))
+            .size(searchH, searchH);
+        tb1.add(makeIconBtn(mindustry.gen.Iconc.add, "Add custom server", this::showCustomConnectDialog))
+            .size(searchH, searchH);
+        serversDialog.cont.add(tb1).left().growX().padBottom(toolbarPad).row();
+
+        // Combined chip strip: group toggles up front + mode chips after.
+        modeChipBar = new Table();
+        modeChipBar.defaults().padRight(6f);
+        arc.scene.ui.ScrollPane chipPane = new arc.scene.ui.ScrollPane(modeChipBar);
+        chipPane.setScrollingDisabled(false, true);
+        chipPane.setOverscroll(false, false);
+        chipPane.setFadeScrollBars(true);
+        serversDialog.cont.add(chipPane).left().growX().maxWidth(sceneWidth() - 12f).height(120f).padBottom(toolbarPad).row();
+        rebuildModeChipsV2();
+
+        Table tb3 = new Table();
+        tb3.left();
+        tb3.add("Max ping").padRight(6f);
+        arc.scene.ui.Slider sl = new arc.scene.ui.Slider(50, 999, 10, false);
+        sl.setValue(cfgServersMaxPing);
+        Label v = new Label(cfgServersMaxPing + " ms");
+        sl.changed(() -> { cfgServersMaxPing = (int) sl.getValue(); v.setText(cfgServersMaxPing + " ms"); saveServersConfig(); refreshBrowserRows(); });
+        tb3.add(sl).growX().height(34f);
+        tb3.add(v).padLeft(6f).width(70f);
+        tb3.add(makeShowEmptyCheckbox()).padLeft(12f);
+        serversDialog.cont.add(tb3).left().growX().padBottom(toolbarPad).row();
+    }
+
+    private void rebuildModeChipsV2() {
+        if (modeChipBar == null) return;
+        modeChipBar.clear();
+        modeChipBar.left();
+        addGroupChips(modeChipBar, 56f, true);
+        modeChipBar.add(new Label("[#666]│[]")).padLeft(8f).padRight(8f);
+        rebuildModeChipsCommon();
+    }
+
+    // ============================================================
+    // Layout V3 — Collapsible Filters panel: row 1 has search, refresh,
+    // custom, and a "Filters ▾" toggle. Filters panel (group/modes/slider/
+    // show-empty) hides by default; tap toggle to expand/collapse.
+    // ============================================================
+    private boolean filtersV3Expanded = false;
+    private Table filtersV3Panel;
+
+    private void buildToolbarV3(float btnH, float searchH, float toolbarPad) {
+        filtersV3Expanded = false; // always start collapsed when (re)opening
+        Table tb1 = new Table();
+        tb1.defaults().padRight(6f);
+        tb1.add(makeSearchField()).growX().height(searchH);
+        tb1.add(makeIconBtn(mindustry.gen.Iconc.refresh, "Refresh", this::collectAndPingServers))
+            .size(searchH, searchH);
+        tb1.add(makeIconBtn(mindustry.gen.Iconc.add, "Add custom server", this::showCustomConnectDialog))
+            .size(searchH, searchH);
+        // Square icon button to match the other two — keeps the toolbar
+        // visually uniform. Glyph swaps between settings and back-arrow
+        // (open/close) so users see the toggle state without text labels.
+        TextButton filtersToggle = new TextButton(String.valueOf(mindustry.gen.Iconc.settings), Styles.defaultt);
+        filtersToggle.getLabelCell().pad(2f, BTN_LABEL_PAD, 2f, BTN_LABEL_PAD);
+        addTooltip(filtersToggle, "Filters");
+        tb1.add(filtersToggle).size(searchH, searchH);
+        serversDialog.cont.add(tb1).left().growX().padBottom(toolbarPad).row();
+
+        filtersV3Panel = new Table();
+        filtersV3Panel.defaults().growX();
+        filtersV3Panel.left();
+        // Compact filter content — group toggles fused into chip strip,
+        // slider+show-empty share a row. Two rows total.
+        modeChipBar = new Table();
+        modeChipBar.defaults().padRight(6f);
+        arc.scene.ui.ScrollPane innerChipPane = new arc.scene.ui.ScrollPane(modeChipBar);
+        innerChipPane.setScrollingDisabled(false, true);
+        innerChipPane.setOverscroll(false, false);
+        innerChipPane.setFadeScrollBars(true);
+        filtersV3Panel.add(innerChipPane).left().growX().maxWidth(sceneWidth() - 12f).height(80f).padBottom(2f).row();
+        rebuildModeChipsV3();
+
+        Table sliderRow = new Table();
+        sliderRow.left();
+        sliderRow.add("Max ping").padRight(6f);
+        arc.scene.ui.Slider sl = new arc.scene.ui.Slider(50, 999, 10, false);
+        sl.setValue(cfgServersMaxPing);
+        Label v = new Label(cfgServersMaxPing + " ms");
+        sl.changed(() -> { cfgServersMaxPing = (int) sl.getValue(); v.setText(cfgServersMaxPing + " ms"); saveServersConfig(); refreshBrowserRows(); });
+        sliderRow.add(sl).growX().height(34f);
+        sliderRow.add(v).padLeft(6f).width(70f);
+        sliderRow.add(makeShowEmptyCheckbox()).padLeft(12f);
+        filtersV3Panel.add(sliderRow).left().growX().padBottom(2f).row();
+
+        // Wrap the panel in a vertical-scroll ScrollPane so its prefHeight
+        // can never push the toolbar above the dialog's title bar. Cell
+        // height is capped at ~40% of the stage when expanded; collapsed =
+        // 0×0 so the cell takes no space.
+        arc.scene.ui.ScrollPane filterScroll = new arc.scene.ui.ScrollPane(filtersV3Panel);
+        filterScroll.setScrollingDisabled(true, false);
+        filterScroll.setOverscroll(false, false);
+        filterScroll.setFadeScrollBars(false);
+
+        @SuppressWarnings("rawtypes")
+        final arc.scene.ui.layout.Cell cellRef =
+            serversDialog.cont.add(filterScroll).left().growX().padBottom(toolbarPad);
+        serversDialog.cont.row();
+        Runnable applyVisibility = () -> {
+            filterScroll.visible = filtersV3Expanded;
+            if (filtersV3Expanded) {
+                float pref = filtersV3Panel.getPrefHeight();
+                cellRef.height(pref).pad(0f).padBottom(0f);
+            } else {
+                cellRef.size(0f, 0f).pad(0f);
+            }
+            serversDialog.cont.invalidateHierarchy();
+        };
+        applyVisibility.run();
+        filtersToggle.clicked(() -> {
+            filtersV3Expanded = !filtersV3Expanded;
+            filtersToggle.setText(String.valueOf(filtersV3Expanded ? mindustry.gen.Iconc.cancel : mindustry.gen.Iconc.settings));
+            applyVisibility.run();
+        });
+    }
+
+    // ============================================================
+    // Layout V4 — Single mega-strip: search + icon buttons on row 1; one
+    // long horizontal-scroll strip below combining group / sort / modes /
+    // show-empty into one tap-to-toggle list. No slider row.
+    // ============================================================
+    private void buildToolbarV4(float btnH, float searchH, float toolbarPad) {
+        Table tb1 = new Table();
+        tb1.defaults().padRight(6f);
+        tb1.add(makeSearchField()).growX().height(searchH);
+        tb1.add(makeIconBtn(mindustry.gen.Iconc.refresh, "Refresh", this::collectAndPingServers))
+            .size(searchH, searchH);
+        tb1.add(makeIconBtn(mindustry.gen.Iconc.add, "Custom", this::showCustomConnectDialog))
+            .size(searchH, searchH);
+        serversDialog.cont.add(tb1).left().growX().padBottom(toolbarPad).row();
+
+        // One long h-scroll strip with everything packed in.
+        modeChipBar = new Table();
+        modeChipBar.defaults().padRight(6f);
+        arc.scene.ui.ScrollPane chipPane = new arc.scene.ui.ScrollPane(modeChipBar);
+        chipPane.setScrollingDisabled(false, true);
+        chipPane.setOverscroll(false, false);
+        chipPane.setFadeScrollBars(true);
+        serversDialog.cont.add(chipPane).left().growX().maxWidth(sceneWidth() - 12f).height(120f).padBottom(toolbarPad).row();
+        rebuildModeChipsV4();
+
+        addSliderRow(serversDialog.cont, toolbarPad, true);
+    }
+
+    private void rebuildModeChipsV4() {
+        if (modeChipBar == null) return;
+        modeChipBar.clear();
+        modeChipBar.left();
+        addGroupChips(modeChipBar, 56f, true);
+        modeChipBar.add(new Label("[#666]│[]")).padLeft(8f).padRight(8f);
+        // Show-empty as a toggle chip
+        TextButton emptyChip = new TextButton(" Show empty ", Styles.flatTogglet);
+        emptyChip.getLabelCell().pad(2f, BTN_LABEL_PAD, 2f, BTN_LABEL_PAD);
+        emptyChip.update(() -> emptyChip.setChecked(cfgServersShowEmpty));
+        emptyChip.clicked(() -> { cfgServersShowEmpty = !cfgServersShowEmpty; saveServersConfig(); refreshBrowserRows(); });
+        modeChipBar.add(emptyChip).height(56f);
+        modeChipBar.add(new Label("[#666]│[]")).padLeft(8f).padRight(8f);
+        rebuildModeChipsCommon();
+    }
+
+    // ============================================================
+    // Layout V5 — Bottom-sheet style: row 1 has search + icon refresh +
+    // icon custom + ⚙ Settings icon. Tap settings opens a separate
+    // dialog with all filters. Row 2 = mode chip strip only. Maximum list
+    // space, fewest fixed rows.
+    // ============================================================
+    private void buildToolbarV5(float btnH, float searchH, float toolbarPad) {
+        Table tb1 = new Table();
+        tb1.defaults().padRight(6f);
+        tb1.add(makeSearchField()).growX().height(searchH);
+        tb1.add(makeIconBtn(mindustry.gen.Iconc.refresh, "Refresh", this::collectAndPingServers))
+            .size(searchH, searchH);
+        tb1.add(makeIconBtn(mindustry.gen.Iconc.add, "Custom", this::showCustomConnectDialog))
+            .size(searchH, searchH);
+        tb1.add(makeIconBtn(mindustry.gen.Iconc.settings, "Filters", this::showFiltersDialog))
+            .size(searchH, searchH);
+        serversDialog.cont.add(tb1).left().growX().padBottom(toolbarPad).row();
+        addModeChipPane(serversDialog.cont, toolbarPad, 120f);
+    }
+
+    private void showFiltersDialog() {
+        BaseDialog d = new BaseDialog("Filters");
+        d.cont.defaults().growX().padBottom(8f);
+        Table groupRow = new Table();
+        groupRow.left();
+        groupRow.add("Group:").padRight(6f);
+        addGroupChips(groupRow, 44f, true);
+        d.cont.add(groupRow).left().row();
+        addSliderRow(d.cont, 8f, true);
+        d.cont.add(makeShowEmptyCheckbox()).left().row();
+        d.addCloseButton();
+        d.show();
     }
 
     /** Append the three group-toggle chips (none / mode / group) to a row.
@@ -542,9 +811,33 @@ public class BetterServerBrowser extends Mod {
     // ============================================================
     private void rebuildModeChips() {
         if (modeChipBar == null) return;
+        // V2 / V3 / V4 prepend extra chips before mode chips (group toggles
+        // + separators + show-empty toggle); dispatch so refreshBrowserRows()
+        // re-renders the variant's full strip when filters change.
+        int variant = getLayoutVariant();
+        if (variant == 2) { rebuildModeChipsV2(); return; }
+        if (variant == 3) { rebuildModeChipsV3(); return; }
+        if (variant == 4) { rebuildModeChipsV4(); return; }
         modeChipBar.clear();
         modeChipBar.left();
         modeChipBar.add("Modes:").padRight(6f).padLeft(6f);
+        rebuildModeChipsCommon();
+    }
+
+    /** V3 chip strip variant — group toggles fused inline before mode chips. */
+    private void rebuildModeChipsV3() {
+        if (modeChipBar == null) return;
+        modeChipBar.clear();
+        modeChipBar.left();
+        addGroupChips(modeChipBar, 56f, true);
+        modeChipBar.add(new Label("[#666]│[]")).padLeft(8f).padRight(8f);
+        rebuildModeChipsCommon();
+    }
+
+    /** Append the actual mode toggle chips to {@code modeChipBar}. Used by
+     *  every layout — the surrounding cells (label, group chips, dividers,
+     *  show-empty toggle) are added by the variant-specific builder. */
+    private void rebuildModeChipsCommon() {
         ObjectMap<String, String> keyToDisplay = new ObjectMap<>();
         for (mindustry.game.Gamemode g : mindustry.game.Gamemode.values()) {
             keyToDisplay.put(g.name().toLowerCase(), capitalize(g.name()));
@@ -569,9 +862,6 @@ public class BetterServerBrowser extends Mod {
         }
         custom.sort();
         ordered.addAll(custom);
-        // Single horizontal row — the parent ScrollPane handles overflow by
-        // letting the user swipe through chips. Avoids Table wrap math
-        // having to predict the exact runtime chip widths under Scl scale.
         float padRight = 4f;
         for (String key : ordered) {
             String display = keyToDisplay.get(key);
